@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1
+# Minimal runtime image. Build artifacts are staged by build-in-pod.sh and
+# copied from artifacts/stage before this Dockerfile is built.
+ARG CUDA_VERSION=13.0.3
+ARG UBUNTU_VERSION=24.04
+FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu${UBUNTU_VERSION}
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG RUNTIME_UID=1000
+ARG RUNTIME_GID=1000
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        ibverbs-providers \
+        libgflags2.2 \
+        libgomp1 \
+        libhwloc15 \
+        libibumad3 \
+        libibverbs1 \
+        libnl-3-200 \
+        libnl-route-3-200 \
+        libnuma1 \
+        librdmacm1 \
+        libstdc++6 \
+        rdma-core \
+        zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN install -d -o "${RUNTIME_UID}" -g "${RUNTIME_GID}" /workspace /workspace/projects/nixl-ucx /home/nixl
+
+COPY artifacts/stage/ /opt/nixl-stack/
+
+ENV NIXL_STACK=/opt/nixl-stack \
+    PATH=/opt/nixl-stack/nixlbench/bin:/opt/nixl-stack/nixl/bin:/opt/nixl-stack/ucx/bin:${PATH} \
+    LD_LIBRARY_PATH=/opt/nixl-stack/nixlbench/lib:/opt/nixl-stack/nixl/lib:/opt/nixl-stack/nixl/lib/x86_64-linux-gnu:/opt/nixl-stack/nixl/lib/x86_64-linux-gnu/plugins:/opt/nixl-stack/ucx/lib:/opt/nixl-stack/ucx/lib/ucx:/usr/local/cuda/lib64:${LD_LIBRARY_PATH} \
+    UCX_MODULE_DIR=/opt/nixl-stack/ucx/lib/ucx
+
+RUN ldconfig
+
+ENV HOME=/home/nixl
+WORKDIR /workspace/projects/nixl-ucx
+USER ${RUNTIME_UID}:${RUNTIME_GID}
+CMD ["sleep", "infinity"]

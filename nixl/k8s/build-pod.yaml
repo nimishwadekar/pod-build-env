@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nixl-builder
+  namespace: nwadekar-pirate
+  labels:
+    app: nixl-builder
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: a100-03
+  initContainers:
+    - name: init-project
+      image: ${BUILD_ENV_IMAGE}:${IMAGE_TAG}
+      imagePullPolicy: Always
+      workingDir: /workspace
+      command: ["/bin/sh", "-c"]
+      args: ["mkdir -p /workspace/projects/nixl-ucx"]
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+  containers:
+    - name: builder
+      image: ${BUILD_ENV_IMAGE}:${IMAGE_TAG}
+      imagePullPolicy: Always
+      workingDir: /workspace/projects/nixl-ucx
+      command: ["sleep", "infinity"]
+      env:
+        - name: HOME
+          value: /workspace
+        - name: CUDA_HOME
+          value: /usr/local/cuda
+        - name: VSCODE_AGENT_FOLDER
+          value: /workspace/.vscode-server
+        - name: SHELL
+          value: /usr/bin/bash
+      resources:
+        requests:
+          cpu: "2"
+          memory: 8Gi
+        limits:
+          cpu: "8"
+          memory: 32Gi
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+  volumes:
+    - name: workspace
+      persistentVolumeClaim:
+        claimName: build-workspace

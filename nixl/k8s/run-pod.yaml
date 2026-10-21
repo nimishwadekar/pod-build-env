@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nixl-runner
+  namespace: nwadekar-pirate
+  labels:
+    app: nixl-runner
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: a100-03
+  containers:
+    - name: nixlbench
+      image: ${RUNTIME_IMAGE}:${IMAGE_TAG}
+      imagePullPolicy: Always
+      workingDir: /workspace/projects/nixl-ucx
+      command: ["sleep", "infinity"]
+      env:
+        - name: UCX_TLS
+          value: self,sm,tcp,cuda_copy,cuda_ipc
+        - name: UCX_LOG_LEVEL
+          value: warn
+      resources:
+        requests:
+          cpu: "2"
+          memory: 4Gi
+        limits:
+          cpu: "8"
+          memory: 16Gi
+          nvidia.com/gpu: "1"
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
