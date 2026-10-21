@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-workspace
+  namespace: nwadekar-pirate
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: a100-03
+  containers:
+    - name: workspace
+      image: quay.io/nwadekar/pod-build-env:test-env
+      imagePullPolicy: Always
+      command: ["/bin/sh", "-c"]
+      args: ["mkdir -p /workspace/.vscode-server && exec sleep 86400"]
+      env:
+        - name: HOME
+          value: /workspace
+        - name: VSCODE_AGENT_FOLDER
+          value: /workspace/.vscode-server
+        - name: SHELL
+          value: /usr/bin/bash
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "1Gi"
+        limits:
+          cpu: "2"
+          memory: "4Gi"
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: quay-auth
+          mountPath: /.docker
+          readOnly: true
+  volumes:
+    - name: workspace
+      persistentVolumeClaim:
+        claimName: build-workspace
+    - name: quay-auth
+      secret:
+        secretName: quay-auth
+        items:
+          - key: .dockerconfigjson
+            path: config.json

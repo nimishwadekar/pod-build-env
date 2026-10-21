@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: build-workspace
+  namespace: nwadekar-pirate
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: lvms-a100-tier1-storage
+  resources:
+    requests:
+      storage: 100Gi
