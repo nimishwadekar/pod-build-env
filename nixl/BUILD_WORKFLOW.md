@@ -80,11 +80,11 @@ Apply `k8s/build-pod.yaml`:
 ```bash
 ./scripts/build-and-push.sh apply-build-pod
 kubectl -n nwadekar-pirate wait \
-  --for=condition=Ready pod/nixl-builder \
+  --for=condition=Ready pod/nixl-builder-a100-03 \
   --timeout=10m
 ```
 
-The pod mounts the shared PVC at `/workspace`. The build script works in `/workspace/projects/nixl-ucx`. Attach VS Code to `nixl-builder` if source changes are needed.
+The pod mounts the shared PVC at `/workspace`. The build script works in `/workspace/projects/nixl-ucx`. Attach VS Code to `nixl-builder-a100-03` if source changes are needed. Pod names are suffixed with their target node; the builder defaults to `a100-03` and can be moved with `BUILD_POD_NODE`.
 
 ## 5. Build UCX, NIXL, and NIXLBench in the pod
 
@@ -151,6 +151,7 @@ Apply `k8s/run-pod.yaml`:
 
 The runtime pod:
 
+- Is named `nixl-runner-a100-03` by default, with the node suffix controlled by `RUN_POD_NODE`.
 - Requests one NVIDIA GPU.
 - Uses standard Kubernetes networking and IPC isolation.
 - Sets the UCX transport environment.
@@ -161,13 +162,13 @@ The runtime pod:
 Check the binary:
 
 ```bash
-kubectl -n nwadekar-pirate exec -it nixl-runner -- nixlbench --help
+kubectl -n nwadekar-pirate exec -it nixl-runner-a100-03 -- nixlbench --help
 ```
 
 Run an ASIO/UCX benchmark:
 
 ```bash
-kubectl -n nwadekar-pirate exec -it nixl-runner -- \
+kubectl -n nwadekar-pirate exec -it nixl-runner-a100-03 -- \
   nixlbench --backend UCX
 ```
 

@@ -24,7 +24,7 @@ The selected CUDA tag must exist in the NVIDIA CUDA registry and must match the 
 - Docker with permission to push to `quay.io/nwadekar`.
 - `kubectl` configured for the target cluster.
 - The `build-workspace` PVC in namespace `nwadekar-pirate`.
-- The PVC must not be mounted by another pod while `nixl-builder` is running because it is `ReadWriteOnce`.
+- The PVC must not be mounted by another pod while `nixl-builder-a100-03` is running because it is `ReadWriteOnce`.
 - The cluster must provide the NVIDIA device plugin for the runtime pod's GPU request. RDMA devices should be provided by the cluster's RDMA/device plugin.
 
 ## Workflow
@@ -41,7 +41,7 @@ docker login quay.io
 
 # Start the builder (or use `all` for the complete flow).
 ./scripts/build-and-push.sh apply-build-pod
-kubectl -n nwadekar-pirate wait --for=condition=Ready pod/nixl-builder --timeout=10m
+kubectl -n nwadekar-pirate wait --for=condition=Ready pod/nixl-builder-a100-03 --timeout=10m
 
 # Run this from the host after editing source on the PVC through VS Code.
 ./scripts/build-and-push.sh build-in-pod
@@ -70,6 +70,12 @@ IMAGE_TAG=my-test \
 BUILD_ENV_IMAGE=quay.io/nwadekar/nixl-build-env \
 RUNTIME_IMAGE=quay.io/nwadekar/nixl-ucx-bench \
 ./scripts/build-and-push.sh all
+```
+
+Pod names include their target node as a suffix. The builder defaults to `nixl-builder-a100-03`; the runtime pod defaults to `nixl-runner-a100-03`. Set `BUILD_POD_NODE` or `RUN_POD_NODE` to change the respective target node and name. For example:
+
+```bash
+RUN_POD_NODE=a100-04 ./scripts/build-and-push.sh apply-run-pod
 ```
 
 ## Source and artifact layout on the PVC
@@ -114,7 +120,7 @@ For a clean code rebuild:
 The default NIXL plugin set is `UCX,POSIX`. Override it when additional dependencies are installed:
 
 ```bash
-kubectl -n nwadekar-pirate exec nixl-builder -- \
+kubectl -n nwadekar-pirate exec nixl-builder-a100-03 -- \
   env NIXL_ENABLE_PLUGINS=UCX,POSIX /usr/local/bin/build-in-pod
 ```
 
@@ -123,8 +129,8 @@ kubectl -n nwadekar-pirate exec nixl-builder -- \
 After the runtime pod is ready, inspect the binary and run an ASIO benchmark, for example:
 
 ```bash
-kubectl -n nwadekar-pirate exec -it nixl-runner -- nixlbench --help
-kubectl -n nwadekar-pirate exec -it nixl-runner -- \
+kubectl -n nwadekar-pirate exec -it nixl-runner-a100-03 -- nixlbench --help
+kubectl -n nwadekar-pirate exec -it nixl-runner-a100-03 -- \
   nixlbench --backend UCX
 ```
 

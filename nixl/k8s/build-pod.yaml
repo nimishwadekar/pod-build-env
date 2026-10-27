@@ -1,14 +1,14 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: nixl-builder
+  name: ${BUILDER_POD_NAME}
   namespace: nwadekar-pirate
   labels:
     app: nixl-builder
 spec:
   restartPolicy: Never
   nodeSelector:
-    kubernetes.io/hostname: a100-03
+    kubernetes.io/hostname: ${BUILD_POD_NODE}
   initContainers:
     - name: init-project
       image: ${BUILD_ENV_IMAGE}:${IMAGE_TAG}

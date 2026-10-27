@@ -1,14 +1,14 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: nixl-runner
+  name: nixl-runner-${RUN_POD_NODE}
   namespace: nwadekar-pirate
   labels:
     app: nixl-runner
 spec:
   restartPolicy: Never
   nodeSelector:
-    kubernetes.io/hostname: a100-03
+    kubernetes.io/hostname: ${RUN_POD_NODE}
   containers:
     - name: nixlbench
       image: ${RUNTIME_IMAGE}:${IMAGE_TAG}

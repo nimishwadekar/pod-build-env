@@ -3,7 +3,10 @@ set -Eeuo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 NAMESPACE=${NAMESPACE:-nwadekar-pirate}
+BUILD_POD_NODE=${BUILD_POD_NODE:-a100-03}
 BUILDER_POD=${BUILDER_POD:-nixl-builder}
+BUILDER_POD_NAME="${BUILDER_POD}-${BUILD_POD_NODE}"
+RUN_POD_NODE=${RUN_POD_NODE:-a100-03}
 BUILD_ENV_IMAGE=${BUILD_ENV_IMAGE:-quay.io/nwadekar/pod-build-env}
 RUNTIME_IMAGE=${RUNTIME_IMAGE:-quay.io/nwadekar/nixl-benchmark}
 IMAGE_TAG=${IMAGE_TAG:-custom-nixl1.4.1-ucx1.22.0}
@@ -32,7 +35,8 @@ Commands:
 
 Environment overrides:
   BUILD_ENV_IMAGE, RUNTIME_IMAGE, IMAGE_TAG, CUDA_VERSION, UBUNTU_VERSION,
-  NAMESPACE, BUILDER_POD, TARGET_PLATFORM, CLEAN_BUILD, and KUBECTL_CONTEXT.
+  NAMESPACE, BUILD_POD_NODE, BUILDER_POD, RUN_POD_NODE, TARGET_PLATFORM,
+  CLEAN_BUILD, and KUBECTL_CONTEXT. Pod names are suffixed with their node.
 EOF
 }
 
@@ -67,6 +71,9 @@ render_manifest() {
         -e "s|\${BUILD_ENV_IMAGE}|$BUILD_ENV_IMAGE|g" \
         -e "s|\${RUNTIME_IMAGE}|$RUNTIME_IMAGE|g" \
         -e "s|\${IMAGE_TAG}|$IMAGE_TAG|g" \
+        -e "s|\${BUILD_POD_NODE}|$BUILD_POD_NODE|g" \
+        -e "s|\${BUILDER_POD_NAME}|$BUILDER_POD_NAME|g" \
+        -e "s|\${RUN_POD_NODE}|$RUN_POD_NODE|g" \
         "$template" > "$rendered"
 }
 
@@ -82,7 +89,7 @@ apply_build_pod() {
 
 build_in_pod() {
     local mode=${1:-incremental}
-    "${KUBE[@]}" -n "$NAMESPACE" exec "$BUILDER_POD" -- \
+    "${KUBE[@]}" -n "$NAMESPACE" exec "$BUILDER_POD_NAME" -- \
         /usr/local/bin/build-in-pod "$mode"
 }
 
@@ -100,11 +107,11 @@ copy_artifacts() {
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' RETURN
     mkdir -p "$ROOT/artifacts/stage"
-    "${KUBE[@]}" -n "$NAMESPACE" cp "$BUILDER_POD:/workspace/projects/nixl-ucx/artifacts/nixl-stack.tar.gz" "$tmp/nixl-stack.tar.gz"
+    "${KUBE[@]}" -n "$NAMESPACE" cp "$BUILDER_POD_NAME:/workspace/projects/nixl-ucx/artifacts/nixl-stack.tar.gz" "$tmp/nixl-stack.tar.gz"
     rm -rf "$ROOT/artifacts/stage"
     mkdir -p "$ROOT/artifacts/stage"
     tar -xzf "$tmp/nixl-stack.tar.gz" -C "$ROOT/artifacts/stage"
-    "${KUBE[@]}" -n "$NAMESPACE" cp "$BUILDER_POD:/workspace/projects/nixl-ucx/artifacts/manifest.txt" "$ROOT/artifacts/manifest.txt"
+    "${KUBE[@]}" -n "$NAMESPACE" cp "$BUILDER_POD_NAME:/workspace/projects/nixl-ucx/artifacts/manifest.txt" "$ROOT/artifacts/manifest.txt"
     mv "$tmp/nixl-stack.tar.gz" "$archive"
     trap - RETURN
     rm -rf "$tmp"
@@ -150,7 +157,7 @@ case "$command" in
         build_env
         push_build_env
         apply_build_pod
-        "${KUBE[@]}" -n "$NAMESPACE" wait --for=condition=Ready "pod/$BUILDER_POD" --timeout=10m
+        "${KUBE[@]}" -n "$NAMESPACE" wait --for=condition=Ready "pod/$BUILDER_POD_NAME" --timeout=10m
         build_in_pod "${2:-incremental}"
         copy_artifacts
         build_runtime
