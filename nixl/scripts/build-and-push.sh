@@ -7,6 +7,8 @@ BUILD_POD_NODE=${BUILD_POD_NODE:-a100-03}
 BUILDER_POD=${BUILDER_POD:-nixl-builder}
 BUILDER_POD_NAME="${BUILDER_POD}-${BUILD_POD_NODE}"
 RUN_POD_NODE=${RUN_POD_NODE:-a100-03}
+RUN_POD_NAME=${RUN_POD_NAME:-nixl-runner-${RUN_POD_NODE}}
+TCP_PROFILING=${TCP_PROFILING:-off}
 BUILD_ENV_IMAGE=${BUILD_ENV_IMAGE:-quay.io/nwadekar/pod-build-env}
 RUNTIME_IMAGE=${RUNTIME_IMAGE:-quay.io/nwadekar/nixl-benchmark}
 IMAGE_TAG=${IMAGE_TAG:-custom-nixl1.4.1-ucx1.22.0}
@@ -36,7 +38,8 @@ Commands:
 Environment overrides:
   BUILD_ENV_IMAGE, RUNTIME_IMAGE, IMAGE_TAG, CUDA_VERSION, UBUNTU_VERSION,
   NAMESPACE, BUILD_POD_NODE, BUILDER_POD, RUN_POD_NODE, TARGET_PLATFORM,
-  CLEAN_BUILD, and KUBECTL_CONTEXT. Pod names are suffixed with their node.
+  CLEAN_BUILD, KUBECTL_CONTEXT, RUN_POD_NAME, and TCP_PROFILING=on|off.
+  Pod names are suffixed with their node.
 EOF
 }
 
@@ -74,6 +77,8 @@ render_manifest() {
         -e "s|\${BUILD_POD_NODE}|$BUILD_POD_NODE|g" \
         -e "s|\${BUILDER_POD_NAME}|$BUILDER_POD_NAME|g" \
         -e "s|\${RUN_POD_NODE}|$RUN_POD_NODE|g" \
+        -e "s|\${RUN_POD_NAME}|$RUN_POD_NAME|g" \
+        -e "s|\${NAMESPACE}|$NAMESPACE|g" \
         "$template" > "$rendered"
 }
 
@@ -89,8 +94,13 @@ apply_build_pod() {
 
 build_in_pod() {
     local mode=${1:-incremental}
+    case "$TCP_PROFILING" in
+        on|off) ;;
+        *) echo 'TCP_PROFILING must be on or off' >&2; return 2 ;;
+    esac
     "${KUBE[@]}" -n "$NAMESPACE" exec "$BUILDER_POD_NAME" -- \
-        /usr/local/bin/build-in-pod "$mode"
+        env "TCP_PROFILING=$TCP_PROFILING" \
+        /bin/bash /workspace/projects/nixl-ucx/src/nixl/contrib/tcp-profile-build.sh "$mode"
 }
 
 rebuild_code() {

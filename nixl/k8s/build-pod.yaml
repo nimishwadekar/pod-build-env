@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: ${BUILDER_POD_NAME}
-  namespace: nwadekar-pirate
+  namespace: ${NAMESPACE}
   labels:
     app: nixl-builder
 spec:

@@ -91,6 +91,26 @@ The build script uses this project directory on the shared PVC:
 
 Existing source trees are never reset, so local VS Code edits are preserved. The script clones missing trees at the pinned refs and builds the NIXL `benchmark/nixlbench` tree after installing NIXL against the private UCX prefix. Builds are incremental by default: existing UCX/Meson build directories and install prefixes are preserved.
 
+### TCP diagnostic profiling (forked source trees)
+
+The forked NIXL tree provides `contrib/tcp-profile-build.sh`. Select the whole
+stack's build mode with one variable; no builder-image rebuild is needed:
+
+```bash
+TCP_PROFILING=on ./scripts/build-and-push.sh rebuild-code
+TCP_PROFILING=off ./scripts/build-and-push.sh rebuild-code
+```
+
+OFF (the default) compiles out the added instrumentation. ON records bounded
+per-thread binary traces and adds profiling overhead. The helper currently
+supports incremental builds only and rejects `clean` before modifying outputs.
+Use separate image tags to distinguish ON and OFF runtime images. An ON
+NIXLBench writes its trace on normal exit to `/tmp/nixl-tcp-profile.bin` inside
+the pod; `NIXL_TCP_PROFILE_FILE` selects a different output path.
+
+Override `NAMESPACE` when applying pods on another cluster. `RUN_POD_NAME`
+optionally overrides the node-suffixed name, allowing isolated profiling pods.
+
 Use a clean build only when needed:
 
 ```bash
