@@ -1,6 +1,6 @@
-# NIXL / UCX build workspace
+# NIXL / UCX / vLLM build workspace
 
-This directory implements a two-image workflow for building NIXL `v1.4.1`, UCX `v1.22.0`, and NIXLBench from source on the PVC-backed Kubernetes pod, then producing a small runtime image on the host.
+This directory builds the existing UCX, NIXL, NIXLBench, and vLLM source trees on the PVC-backed Kubernetes pod, then packages them in a runtime image on the host. Choose the branches/tags yourself in the pod; the build does not clone, select, or verify source refs.
 
 ## CUDA versions
 
@@ -89,7 +89,11 @@ The build script uses this project directory on the shared PVC:
 /workspace/projects/nixl-ucx/artifacts/nixl-stack.tar.gz
 ```
 
-Existing source trees are never reset, so local VS Code edits are preserved. The script clones missing trees at the pinned refs and builds the NIXL `benchmark/nixlbench` tree after installing NIXL against the private UCX prefix. Builds are incremental by default: existing UCX/Meson build directories and install prefixes are preserved.
+The vLLM checkout lives at `/workspace/projects/nixl-ucx/src/vllm`. Its wheel is built into `install/vllm/` and included in the artifact archive. Python build dependencies use `build/python-env/`; their versions come from the vLLM checkout's requirements, not from this workflow. Rust dependencies are built through vLLM's own build helper.
+
+Existing source trees and local edits are preserved. The build installs NIXL against the private UCX prefix and includes NIXL's native Python bindings and dispatcher. The runtime installs the source-built vLLM wheel and its Python dependencies, and uses the staged NIXL/UCX stack rather than PyPI's NIXL/UCX bundle. The CUDA development toolkit remains in the image for vLLM's runtime JIT compilation.
+
+The default `build-in-pod` / `rebuild-code` / `all` flow includes vLLM. Explicit TCP-profiling and request-tracing modes retain their existing build paths. Use a clean build when changing native library versions to avoid reusing older build outputs.
 
 ### TCP diagnostic profiling (forked source trees)
 
@@ -107,6 +111,52 @@ supports incremental builds only and rejects `clean` before modifying outputs.
 Use separate image tags to distinguish ON and OFF runtime images. An ON
 NIXLBench writes its trace on normal exit to `/tmp/nixl-tcp-profile.bin` inside
 the pod; `NIXL_TCP_PROFILE_FILE` selects a different output path.
+
+### Host-local request tracing
+
+`REQUEST_TRACING=on` builds a separate recorder and instrumented UCX/NIXL/
+NIXLBench stack. It requires the matching request-trace source changes to be
+present in the PVC checkouts under `/workspace/projects/nixl-ucx/src/{ucx,nixl}`;
+the build helper checks for them and stops rather than producing a partial
+stack. The helper is copied from the adjacent
+`nixl-ucx/profiling/dram-dram-ucx/tools/request_trace` checkout before building. Set
+`REQUEST_TRACE_SOURCE` if that checkout lives elsewhere.
+
+Use a new build ID each time. Build and install directories, staged artifacts,
+and the runtime image tag are unique to that ID, so existing profiler builds
+and images are left alone. The old TCP profiler must be off:
+
+```bash
+export REQUEST_TRACING=on
+export TCP_PROFILING=off
+export REQUEST_TRACE_BUILD_ID=rt-20261108-01
+
+./scripts/build-and-push.sh rebuild-code
+```
+
+This builds, packages, and pushes a uniquely tagged runtime image. It does
+**not** apply runner pods or start NIXLBench. For separate build/package
+commands, keep those environment values set to the same ID. The runtime bundle
+includes `librequest_trace.so` and its loader path. Captures remain subject to
+the fixed 512-MiB workload, separate source/destination files, and the
+correctness and overhead gates in `nixl-ucx/profiling/dram-dram-ucx/PROFILING_PLAN.md`.
+Do not use the legacy TCP-profiling smoke path for request traces.
+After the push, the resolved immutable image reference is saved as
+`artifacts/nixl-stack-request-trace-<ID>-image.txt`; use that reference for the
+two-host capture driver rather than the mutable tag.
+
+To build an isolated tracing-OFF control from the same instrumented source
+trees, keep a new build ID set and change only the mode:
+
+```bash
+export REQUEST_TRACING=off
+export TCP_PROFILING=off
+export REQUEST_TRACE_BUILD_ID=rt-20261108-off-01
+./scripts/build-and-push.sh rebuild-code
+```
+
+`REQUEST_TRACING=off` without a build ID continues to use the existing default
+build workflow.
 
 Override `NAMESPACE` when applying pods on another cluster. `RUN_POD_NAME`
 optionally overrides the node-suffixed name, allowing isolated profiling pods.
@@ -154,4 +204,4 @@ kubectl -n nwadekar-pirate exec -it nixl-runner-a100-03 -- \
   nixlbench --backend UCX
 ```
 
-The runtime image contains only the staged build outputs and runtime dependencies. Build tools and source trees remain in the builder image/PVC. The runtime pod uses normal Kubernetes networking and IPC isolation; it does not use host networking or host IPC.
+The runtime image contains the staged build outputs, vLLM's Python dependencies, and CUDA JIT tools. Source trees remain on the builder PVC. The runtime pod uses normal Kubernetes networking and IPC isolation; it does not use host networking or host IPC. Launch serving explicitly with `vllm serve ...`; the default image command remains `sleep infinity`.

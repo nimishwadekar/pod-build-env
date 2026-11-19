@@ -1,20 +1,24 @@
 # syntax=docker/dockerfile:1
-# Minimal runtime image. Build artifacts are staged by build-in-pod.sh and
+# Runtime image. Build artifacts are staged by build-in-pod.sh and
 # copied from artifacts/stage before this Dockerfile is built.
 ARG CUDA_VERSION=13.0.3
 ARG UBUNTU_VERSION=24.04
-FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu${UBUNTU_VERSION}
+# vLLM also needs CUDA headers and nvcc for runtime JIT compilation.
+FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION}
 
 ARG DEBIAN_FRONTEND=noninteractive
+ARG CUDA_VERSION
 ARG RUNTIME_UID=1000
 ARG RUNTIME_GID=1000
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
+        ffmpeg \
         ibverbs-providers \
         libgflags2.2 \
         libgomp1 \
+        libgl1 \
         libhwloc15 \
         libibumad3 \
         libibverbs1 \
@@ -23,18 +27,34 @@ RUN apt-get update \
         libnuma1 \
         librdmacm1 \
         libstdc++6 \
+        libsm6 \
+        libxext6 \
+        python3-dev \
+        python3-venv \
         rdma-core \
         zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
-RUN install -d -o "${RUNTIME_UID}" -g "${RUNTIME_GID}" /workspace /workspace/projects/nixl-ucx /home/nixl
+RUN install -d -o "${RUNTIME_UID}" -g "${RUNTIME_GID}" /workspace /workspace/projects/nixl-ucx /home/nixl \
+    && chgrp 0 /home/nixl && chmod g+rwx /home/nixl
 
 COPY artifacts/stage/ /opt/nixl-stack/
 
+RUN python3 -m venv /opt/venv \
+    && /opt/venv/bin/python3 -m pip install --no-cache-dir --upgrade pip \
+    && if [ -d /opt/nixl-stack/vllm ]; then \
+        /opt/venv/bin/python3 -m pip install --no-cache-dir \
+            --extra-index-url "https://download.pytorch.org/whl/cu$(echo "$CUDA_VERSION" | cut -d. -f1,2 | tr -d '.')" \
+            /opt/nixl-stack/vllm/*.whl; \
+    fi
+
 ENV NIXL_STACK=/opt/nixl-stack \
-    PATH=/opt/nixl-stack/nixlbench/bin:/opt/nixl-stack/nixl/bin:/opt/nixl-stack/ucx/bin:${PATH} \
-    LD_LIBRARY_PATH=/opt/nixl-stack/nixlbench/lib:/opt/nixl-stack/nixl/lib:/opt/nixl-stack/nixl/lib/x86_64-linux-gnu:/opt/nixl-stack/nixl/lib/x86_64-linux-gnu/plugins:/opt/nixl-stack/ucx/lib:/opt/nixl-stack/ucx/lib/ucx:/usr/local/cuda/lib64:${LD_LIBRARY_PATH} \
-    UCX_MODULE_DIR=/opt/nixl-stack/ucx/lib/ucx
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:/opt/nixl-stack/nixlbench/bin:/opt/nixl-stack/nixl/bin:/opt/nixl-stack/ucx/bin:${PATH} \
+    LD_LIBRARY_PATH=/opt/nixl-stack/request-trace/lib:/opt/nixl-stack/nixlbench/lib:/opt/nixl-stack/nixl/lib:/opt/nixl-stack/nixl/lib/x86_64-linux-gnu:/opt/nixl-stack/nixl/lib/x86_64-linux-gnu/plugins:/opt/nixl-stack/ucx/lib:/opt/nixl-stack/ucx/lib/ucx:/usr/local/cuda/lib64:${LD_LIBRARY_PATH} \
+    UCX_MODULE_DIR=/opt/nixl-stack/ucx/lib/ucx \
+    NIXL_PLUGIN_DIR=/opt/nixl-stack/nixl/lib/x86_64-linux-gnu/plugins \
+    PYTHONPATH=/opt/nixl-stack/nixl/lib/python3/site-packages
 
 RUN ldconfig
 

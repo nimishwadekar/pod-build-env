@@ -1,6 +1,6 @@
 # NIXL / UCX x86-64 Build Workflow
 
-This workflow builds UCX `v1.22.0`, NIXL `v1.4.1`, and NIXLBench from source on a Kubernetes pod, then builds and pushes a runtime image from the host.
+This workflow builds the existing UCX, NIXL, NIXLBench, and vLLM source trees on a Kubernetes pod, then builds and pushes a runtime image from the host. Source branches/tags are chosen manually in the pod; the build does not clone, select, or verify them.
 
 The workflow uses x86-64 Linux images by default:
 
@@ -60,7 +60,7 @@ IMAGE_TAG=test \
 
 ## 3. Build and push the build image
 
-The build image is defined by `Dockerfile.build`. It contains CUDA development libraries, compilers, UCX dependencies, Meson, Ninja, Python, and other build tools.
+The build image is defined by `Dockerfile.build`. It contains CUDA development libraries, compilers, UCX dependencies, Meson, Ninja, Python, and other build tools. The source-build command installs Python requirements from the existing vLLM checkout into a PVC-backed build virtual environment, and uses vLLM's Rust build helper.
 
 ```bash
 ./scripts/build-and-push.sh build-env
@@ -96,19 +96,20 @@ Run:
 
 `scripts/build-in-pod.sh` performs the following:
 
-1. Clones UCX `v1.22.0` into `/workspace/projects/nixl-ucx/src/ucx` if it is missing.
-2. Clones NIXL `v1.4.1` into `/workspace/projects/nixl-ucx/src/nixl` if it is missing.
+1. Uses the existing `src/ucx`, `src/nixl`, and `src/vllm` checkouts as they are.
+2. Installs vLLM's Python build requirements into `build/python-env`.
 3. Builds UCX with CUDA, verbs, shared libraries, and multithreading.
-4. Builds NIXL against the private UCX installation.
+4. Builds NIXL, including its Python bindings, against that UCX installation.
 5. Builds NIXLBench from `benchmark/nixlbench`.
-6. Stages the runtime files into `/workspace/projects/nixl-ucx/artifacts`.
+6. Builds vLLM's Rust artifacts and Python/CUDA wheel from source into `install/vllm`.
+7. Stages UCX, NIXL, NIXLBench, and the vLLM wheel into the runtime artifact archive.
 
 The important PVC directories are:
 
 ```text
-/workspace/projects/nixl-ucx/src/{ucx,nixl}
+/workspace/projects/nixl-ucx/src/{ucx,nixl,vllm}
 /workspace/projects/nixl-ucx/build/{ucx,nixl,nixlbench}
-/workspace/projects/nixl-ucx/install/{ucx,nixl,nixlbench}
+/workspace/projects/nixl-ucx/install/{ucx,nixl,nixlbench,vllm}
 /workspace/projects/nixl-ucx/artifacts/nixl-stack.tar.gz
 ```
 
@@ -128,7 +129,7 @@ nixl/artifacts/stage/
 
 ## 7. Build and push the runtime image
 
-The runtime image is defined by `Dockerfile.runtime`. It contains CUDA runtime libraries, UCX, NIXL, NIXLBench, and only the required runtime dependencies.
+The runtime image is defined by `Dockerfile.runtime`. It contains UCX, NIXL and its Python bindings, NIXLBench, the source-built vLLM wheel and its dependencies, and CUDA development libraries/tools needed for runtime JIT compilation. It does not install the PyPI NIXL backend bundle. The default command remains `sleep infinity`; invoke `vllm serve ...` when deploying the serving workload.
 
 ```bash
 ./scripts/build-and-push.sh build-runtime
@@ -200,7 +201,60 @@ Start the runtime pod afterward:
 ./scripts/build-and-push.sh apply-run-pod
 ```
 
-## 11. Alternate x86-64 Ubuntu/CUDA versions
+## 11. Build the host-local request-tracing image
+
+The request-tracing mode uses the existing build-and-push workflow, but does
+not call the legacy `contrib/tcp-profile-build.sh` builder. It copies
+`nixl-ucx/profiling/dram-dram-ucx/tools/request_trace` from the adjacent checkout to a
+unique PVC directory, then builds UCX, NIXL, and NIXLBench in fresh
+request-tracing build/install directories. Existing source edits, profiler
+builds, and install prefixes are not cleaned or replaced.
+
+The request-tracing source changes must already be present in the PVC source
+checkouts. The helper verifies the UCX/NIXL build options and compatibility
+headers before compiling. It installs the recorder, checks dynamic linkage,
+and gives only the staged runtime copies RPATHs for `/opt/nixl-stack`; the
+isolated builder installs remain unchanged. The runtime image includes the
+recorder's library directory in its loader path.
+
+Assign a fresh ID to every build and keep it set across the commands:
+
+```bash
+export REQUEST_TRACING=on
+export TCP_PROFILING=off
+export REQUEST_TRACE_BUILD_ID=rt-20261108-01
+
+# Builds, packages and pushes; does not start runner pods or NIXLBench.
+./scripts/build-and-push.sh rebuild-code
+```
+
+The image tag is
+`<IMAGE_TAG>-request-trace-<REQUEST_TRACING>-<REQUEST_TRACE_BUILD_ID>`. The
+request-trace archive and extracted stage have separate names, so the legacy
+`nixl-stack.tar.gz` and `artifacts/stage` are preserved. `REQUEST_TRACE_SOURCE`
+can override the adjacent-checkout path when the tools live elsewhere.
+
+To build an isolated tracing-OFF control from the same instrumented source
+trees, keep a new build ID set and change only the mode:
+
+```bash
+export REQUEST_TRACING=off
+export TCP_PROFILING=off
+export REQUEST_TRACE_BUILD_ID=rt-20261108-off-01
+./scripts/build-and-push.sh rebuild-code
+```
+
+`REQUEST_TRACING=off` without a build ID continues to use the existing default
+build workflow.
+
+This workflow only builds and packages the image. Applying source and
+destination runner pods, preflight checks, and starting the fixed 512-MiB
+capture are separate steps; the build command does not start a transfer.
+After a request-tracing image is pushed, its resolved digest is recorded in
+`artifacts/nixl-stack-request-trace-<ID>-image.txt`. Use that immutable
+`repository@sha256:...` reference when preparing the capture run.
+
+## 12. Alternate x86-64 Ubuntu/CUDA versions
 
 For CUDA 12.8.1 on Ubuntu 22.04:
 

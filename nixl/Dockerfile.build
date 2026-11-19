@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Build environment for NIXL, UCX and NIXLBench.
+# Build environment for NIXL, UCX, NIXLBench and vLLM.
 # Override CUDA_VERSION and UBUNTU_VERSION at build time, for example:
 #   docker build --build-arg CUDA_VERSION=12.8.1 --build-arg UBUNTU_VERSION=22.04 .
 ARG CUDA_VERSION=13.0.3
@@ -47,6 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libzstd-dev \
         ninja-build \
         patchelf \
+        perl \
         pkg-config \
         python3-dev \
         python3-pip \
@@ -69,7 +70,8 @@ RUN python3 -m venv /opt/venv \
         patchelf \
         PyYAML \
         click \
-        tabulate
+        tabulate \
+        uv
 
 RUN install -d -o "${BUILDER_UID}" -g "${BUILDER_GID}" /workspace /workspace/projects/nixl-ucx /opt/nixl-build
 
